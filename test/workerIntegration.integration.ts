@@ -204,6 +204,9 @@ test(
                 "+const after = 3;",
               ].join("\n"),
             },
+            // Mermaid renders through pele (mermaidRender.ts), a separate lazy
+            // import from richRender.ts — this is the workerd gate for that path.
+            { kind: "mermaid", mermaid: "flowchart TD\n  A[In] --> B(Out)" },
           ],
         }),
       ),
@@ -214,6 +217,7 @@ test(
       ["code", /class="shiki/],
       ["terminal", /rgb\(/],
       ["diff", /diffs-container/],
+      ["mermaid", /<svg[^>]*class="[^"]*pele/],
     ];
     for (const [index, [kind, pattern]] of richExpectations.entries()) {
       const page = await worker.fetch(`/p/${richPost.id}?surface=${index}&theme=github&mode=dark`, {

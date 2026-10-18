@@ -19,11 +19,8 @@
 // enough to gate hard.
 
 import { renderCode, renderDiff, renderMarkdown, renderTerminal } from "../../server/richRender.ts";
-import {
-  renderHtmlPage,
-  renderMermaidPage,
-  renderSandboxedPart,
-} from "../../server/surfacePage.ts";
+import { renderMermaid } from "../../server/mermaidRender.ts";
+import { renderHtmlPage, renderSandboxedPart } from "../../server/surfacePage.ts";
 import {
   codeSource,
   diffPatch,
@@ -163,10 +160,18 @@ export const renderSuite: Suite = {
 
     for (const size of sizes) {
       const mermaid = mermaidSource(size);
-      const build = () =>
-        renderMermaidPage({ mermaid, origin: ORIGIN, theme: THEME.theme, mode: THEME.mode });
-      await ctx.time(`mermaid/${size} page wrap`, build, { note: `${utf8(mermaid)} B source` });
-      ctx.add(bytes("render", `mermaid/${size} document`, utf8(build())));
+      const surface = { kind: "mermaid" as const, mermaid };
+      const build = async () => {
+        const rendered = await renderMermaid(surface, { theme: THEME.theme, mode: THEME.mode });
+        return renderSandboxedPart({
+          ...rendered,
+          origin: ORIGIN,
+          theme: THEME.theme,
+          mode: THEME.mode,
+        });
+      };
+      await ctx.time(`mermaid/${size} render`, build, { note: `${utf8(mermaid)} B source` });
+      ctx.add(bytes("render", `mermaid/${size} document`, utf8(await build())));
     }
 
     // --- theme switching -----------------------------------------------------

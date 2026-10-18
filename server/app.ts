@@ -18,12 +18,7 @@ import { EventBus, type FeedEvent } from "./events.ts";
 import { kitSummaries } from "./kits.ts";
 import { registerMcp } from "./mcpHttp.ts";
 import { postToMarkdown } from "./postMarkdown.ts";
-import {
-  escapeHtml,
-  renderHtmlPage,
-  renderMermaidPage,
-  renderSandboxedPart,
-} from "./surfacePage.ts";
+import { escapeHtml, renderHtmlPage, renderSandboxedPart } from "./surfacePage.ts";
 import { DEFAULT_THEME_ID, themeById, themeOptions } from "./themes.ts";
 import {
   type Asset,
@@ -36,6 +31,7 @@ import {
   isSandboxedSurfaceKind,
   reservedAgent,
   type MarkdownSurface,
+  type MermaidSurface,
   MAX_ASSET_BYTES,
   surfacesByteLength,
   type Session,
@@ -1562,7 +1558,7 @@ export function createApp({
   // Serves one surface of a post as a themed, sandboxed document. The viewer
   // points an iframe here for every surface kind that becomes HTML — html surfaces
   // (author markup) and the rich kinds (markdown/code/diff/terminal rendered
-  // server-side; mermaid as a self-rendering CDN doc). Image/trace/json surfaces
+  // server-side, including mermaid now that Pele renders headless). Image/trace/json surfaces
   // are data the viewer renders natively (text nodes / <img> / JSX), so they
   // never reach here.
   const renderPostPage = async (c: any) => {
@@ -1634,7 +1630,12 @@ export function createApp({
         });
       }
       if (surface.kind === "mermaid") {
-        return renderMermaidPage({ mermaid: surface.mermaid, origin, theme, mode });
+        // Pele renders headless (no DOM/WASM), so mermaid is now a server-side
+        // rich kind — but it loads its own module (see mermaidRender.ts) so a
+        // mermaid-only workspace still doesn't pay shiki/@pierre's boot cost.
+        const { renderMermaid } = await import("./mermaidRender.ts");
+        const rendered = await renderMermaid(surface as MermaidSurface, { theme: themeId, mode });
+        return renderSandboxedPart({ ...rendered, origin, theme, mode });
       }
       // Load the rich renderers on first use, not at module load. richRender.ts
       // pulls in shiki, @pierre/diffs, markdown-it and ansi_up — measured at ~48 MB

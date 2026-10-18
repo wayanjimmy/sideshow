@@ -608,7 +608,7 @@ test("POST /api/posts returns a typed actionable error for invalid mermaid", asy
   assert.equal(body.issues[0].code, "invalid_mermaid_syntax");
   assert.equal(body.issues[0].requestPath, "surfaces[0].mermaid");
   assert.equal(body.issues[0].diagramType, "pie");
-  assert.match(body.issues[0].parserMessage, /Parsing failed/);
+  assert.match(body.issues[0].parserMessage, /Lexical error|Parse error|Expecting/);
   assert.match(body.issues[0].nextSteps[0], /retry the request/);
   assert.deepEqual(await (await app.request("/api/sessions")).json(), []);
 });
@@ -718,7 +718,7 @@ test("publish_surface MCP tool round-trips a terminal surface", async () => {
   assert.ok((await doc.text()).includes("term-body"));
 });
 
-test("publishes a mermaid surface; /s emits a self-rendering CDN doc", async () => {
+test("publishes a mermaid surface; /s renders a pele SVG server-side", async () => {
   const app = makeApp();
   const res = await app.request(
     "/api/surfaces",
@@ -734,15 +734,18 @@ test("publishes a mermaid surface; /s emits a self-rendering CDN doc", async () 
   const full = (await (await app.request(`/api/surfaces/${surface.id}`)).json()) as any;
   assert.equal(full.surfaces[0].kind, "mermaid");
   assert.equal(full.surfaces[0].mermaid, "graph TD; A-->B");
-  // mermaid can't render without a DOM, so /s emits a sandboxed doc that loads
-  // mermaid from the CDN and renders the source in-frame. The doc carries the
-  // source and the CDN import, and is served opaque-sandboxed.
+  // Pele renders headless, so /s emits the finished SVG server-side under the
+  // tight rich CSP — no CDN import, no in-frame loader. Still opaque-sandboxed.
   const doc = await app.request(`/s/${surface.id}?part=0`);
   assert.equal(doc.status, 200);
   const body = await doc.text();
-  assert.ok(body.includes("esm.sh/mermaid"));
-  assert.ok(body.includes("graph TD; A--\\u003eB") || body.includes("graph TD; A-->B"));
-  assert.match(doc.headers.get("content-security-policy") ?? "", /\bsandbox\b/);
+  assert.ok(body.includes("<svg"), "renders a real SVG server-side");
+  assert.ok(body.includes("pele"), "SVG carries pele's class markers");
+  assert.ok(!body.includes("esm.sh"), "no CDN dependency");
+  const csp = doc.headers.get("content-security-policy") ?? "";
+  assert.match(csp, /\bsandbox\b/);
+  // The tight rich CSP is a <meta> tag in the doc (only `sandbox` can be a header).
+  assert.match(body, /default-src 'none'/, "uses the tight rich CSP, not the html one");
 });
 
 test("publishes a json surface; round-trips data and 404s on /s", async () => {

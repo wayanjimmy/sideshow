@@ -9,9 +9,9 @@
 // Each renderer returns { body, css }; renderSandboxedPart (surfacePage.ts)
 // wraps body+css in the themed opaque-origin document, injecting the chrome
 // theme vars (viewerThemeCss) — so this file only owns the surface-specific markup
-// and stylesheet, never the surrounding doc/CSP/bridge. (mermaid can't render
-// without a DOM, so it stays a self-rendering CDN doc — see renderMermaidPage in
-// surfacePage.ts — not a function here.)
+// and stylesheet, never the surrounding doc/CSP/bridge. (Mermaid lives in its
+// own lazily-imported sibling module, mermaidRender.ts — same contract, so a
+// mermaid-only workspace doesn't load shiki/@pierre.)
 
 import MarkdownIt from "markdown-it";
 import { AnsiUp } from "ansi_up";

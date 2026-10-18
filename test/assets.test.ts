@@ -173,10 +173,11 @@ test("validateSurfaces accepts valid mermaid diagrams (supported types)", async 
   }
 });
 
-test("validateSurfaces lets unsupported mermaid types through (Jison types)", async () => {
-  // flowchart, sequence, class, state, er, gantt are still on Jison — the
-  // official parser doesn't cover them, so validation is skipped and the
-  // viewer's graceful fallback handles any render failure.
+test("validateSurfaces validates all pele diagram types (formerly skipped Jison types)", async () => {
+  // pele covers every diagram type it renders, including the flowchart/sequence
+  // family the old @mermaid-js/parser package didn't have. These are valid, so
+  // they pass — but they're now actually validated (invalid ones 400), not
+  // skipped through.
   for (const mermaid of [
     "flowchart TD; A-->B; A-->C; B-->D",
     "sequenceDiagram\n  Alice->>Bob: Hello\n  Bob-->>Alice: Hi",
@@ -214,7 +215,7 @@ test("validateSurfaces rejects invalid mermaid with a parse error (supported typ
       if (issue.code !== "invalid_mermaid_syntax") continue;
       assert.equal(issue.requestPath, "surfaces[0].mermaid");
       assert.equal(issue.diagramType, mermaid.split(/\s+/)[0]);
-      assert.match(issue.parserMessage, /Parsing failed/);
+      assert.match(issue.parserMessage, /Lexical error|Parse error|Expecting/);
       assert.deepEqual(issue.nextSteps, [
         "Correct the Mermaid syntax described by parserMessage, then retry the request.",
         'Keep the diagram declaration on the first non-comment line (for example, "flowchart TD").',

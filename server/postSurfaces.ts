@@ -344,13 +344,12 @@ export async function validateSurfaces(raw: unknown): Promise<SurfaceValidationR
 
 // Renderability checks that run after the structural zod parse succeeds. Strict
 // mode reports these as 400s; loose mode (MCP) drops the surface. Runtime-agnostic:
-// the parsers used here are the same ones richRender.ts runs server-side (JS
-// regex engine, no DOM/WASM), so this is safe on the Worker DO too. The mermaid
-// parser (@mermaid-js/parser, the official extraction) covers the 15
-// Langium-migrated diagram types; types still on Jison (flowchart, sequence,
-// class, state, er, gantt, …) are not yet in that package, so we skip
-// validation for them — the viewer's existing graceful fallback handles any
-// render failure. No `node:` imports, no DOM usage on the parse path.
+// the parsers used here are the same ones the renderers run server-side (JS
+// regex engine, no DOM/WASM), so this is safe on the Worker DO too. Mermaid
+// validates through pele — the same library that renders it (see
+// mermaidRender.ts) — so validation covers every diagram type pele supports and
+// validate-pass/render-fail can't happen. No `node:` imports, no DOM usage on
+// the parse path.
 //
 // Both parsers are imported lazily, at their point of use in validateSemantics
 // below — see the note there.
@@ -366,18 +365,6 @@ function diffPatchHasContent(
   if (files > 0) return true;
   const fd = processFile(patch);
   return !!(fd && (fd.name || fd.hunks?.length));
-}
-
-// Extract the diagram type keyword from mermaid source (the first non-empty,
-// non-comment line's first word). The official parser's `parse(diagramType,
-// text)` takes this as a separate parameter.
-function mermaidDiagramType(src: string): string | null {
-  for (const line of src.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("%%") || trimmed.startsWith("#")) continue;
-    return trimmed.split(/\s+/)[0] ?? null;
-  }
-  return null;
 }
 
 // The two parsers load at their point of use, not at module load. Together they
@@ -417,29 +404,17 @@ async function validateSemantics(
     }
   }
   if (surface.kind === "mermaid") {
-    const diagramType = mermaidDiagramType(surface.mermaid);
-    if (!diagramType) {
-      return [
-        {
-          code: "invalid_mermaid_syntax",
-          requestPath: `${surfaceRequestPath}.mermaid`,
-          message: 'has no diagram type (first line should be e.g. "flowchart TD")',
-          diagramType: null,
-          parserMessage: "No Mermaid diagram type was found.",
-          nextSteps: MERMAID_PARSE_NEXT_STEPS,
-        },
-      ];
-    }
+    // Pele (the renderer rich surfaces use) is also the validator — one source
+    // of truth, so validate-pass/render-fail can't happen. Covers every diagram
+    // type pele supports, including the flowchart/sequence family the old
+    // @mermaid-js/parser package didn't have (those were skipped before).
     // Outside the try: the catch below turns a throw into "your mermaid is
     // invalid", which would be a wrong answer (and a 400 instead of a 500) if what
-    // actually failed was loading the parser.
-    const { parse: parseMermaid } = await import("@mermaid-js/parser");
+    // actually failed was loading pele.
+    const { detectType, parse } = await import("pele");
     try {
-      await parseMermaid(diagramType as never, surface.mermaid);
+      parse(surface.mermaid);
     } catch (e) {
-      // Unsupported diagram types (flowchart, sequence, etc. — still on Jison)
-      // skip validation; the viewer's graceful fallback handles render failures.
-      if (e instanceof Error && /unknown diagram type/i.test(e.message)) return [];
       const parserMessage = e instanceof Error ? e.message : "parse error";
       const summary = parserMessage.split("\n")[0] ?? "parse error";
       return [
@@ -447,7 +422,7 @@ async function validateSemantics(
           code: "invalid_mermaid_syntax",
           requestPath: `${surfaceRequestPath}.mermaid`,
           message: `failed to parse: ${summary}`,
-          diagramType,
+          diagramType: detectType(surface.mermaid),
           parserMessage,
           nextSteps: MERMAID_PARSE_NEXT_STEPS,
         },

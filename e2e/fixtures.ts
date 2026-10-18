@@ -161,17 +161,19 @@ export async function serveEmbedBundle(page: Page) {
 }
 
 export async function expectIframesNoHorizontalOverflow(page: Page, container: Locator) {
-  const frameUrls = await container
-    .locator("iframe")
-    .evaluateAll((frames) => frames.map((frame) => (frame as HTMLIFrameElement).src));
-  expect(frameUrls.length).toBeGreaterThan(0);
-
   await expect
     .poll(async () => {
+      // Re-collect each poll: the viewer re-keys iframe srcs (cache-buster on
+      // resize/theme resolution) and virtualizes off-screen frames, so a URL
+      // snapshot taken once can go stale and never match a live frame.
+      const frameUrls = await container
+        .locator("iframe")
+        .evaluateAll((frames) => frames.map((frame) => (frame as HTMLIFrameElement).src));
       const childFrames = frameUrls
         .map((url) => page.frames().find((frame) => frame.url() === url))
         .filter((frame) => frame !== undefined);
-      if (childFrames.length < frameUrls.length) return Number.POSITIVE_INFINITY;
+      if (frameUrls.length === 0 || childFrames.length < frameUrls.length)
+        return Number.POSITIVE_INFINITY;
       const overflows = await Promise.all(
         childFrames.map((frame) =>
           frame.evaluate(() => {

@@ -7,28 +7,15 @@ const DIAGRAM = [
   "  B -->|no| D[Skip]",
 ].join("\n");
 
-// Mermaid can't render without a DOM, so the server emits a self-rendering doc
-// that imports mermaid from the CDN and renders in the sandboxed iframe (the
-// "(B)" path). These tests stub that CDN import so they're hermetic and exercise
-// OUR loader wiring — initialize → render → inject SVG, and the error fallback —
-// rather than the real mermaid parser (now mermaid's own concern) or the
-// network. The diagram source is echoed back so the stub can prove it reached
-// mermaid.render with the right input.
+// Mermaid now renders SERVER-side with Pele (server/mermaidRender.ts): the /s
+// document carries the finished SVG string and the tight rich CSP — no CDN
+// import, no in-frame loader, no network. These tests exercise the real
+// renderer through the viewer: publish → iframe from /s → pele SVG visible.
+
 test("a mermaid part renders inside an opaque-origin frame served from /s", async ({
   page,
   server,
 }) => {
-  // Stub mermaid: echo the source into an <svg> so we can assert it rendered
-  // with our input. Real parsing is mermaid's job; we test the wiring.
-  await page.route("https://esm.sh/**", (route) =>
-    route.fulfill({
-      contentType: "application/javascript",
-      body:
-        "export default { initialize(){}, render(id, src){ " +
-        "return Promise.resolve({ svg: '<svg xmlns=\"http://www.w3.org/2000/svg\"><text>' + src + '</text></svg>' }); } };",
-    }),
-  );
-
   await publishParts(server.url, {
     title: "Flow",
     agent: "e2e",
@@ -38,14 +25,14 @@ test("a mermaid part renders inside an opaque-origin frame served from /s", asyn
   await page.goto(server.url);
   const card = page.locator(".card:not(#sessionThread)");
 
-  // the diagram renders inside an opaque-origin sandbox iframe — a second
-  // boundary behind mermaid's DOMPurify. No allow-same-origin.
+  // the diagram renders inside an opaque-origin sandbox iframe. No
+  // allow-same-origin, even though the SVG was built server-side.
   await expect(card.locator("iframe.mermaidframe")).toHaveAttribute("sandbox", "allow-scripts");
   const frame = card.frameLocator("iframe.mermaidframe");
 
   const svg = frame.locator("svg");
   await expect(svg).toBeVisible();
-  // the source reached mermaid.render and the returned SVG was injected
+  // the real pele renderer produced the node labels from the source
   await expect(frame.locator("body")).toContainText("Start");
   await expect(frame.locator("body")).toContainText("Choice");
 });
@@ -74,7 +61,7 @@ test("the native posts endpoint rejects invalid mermaid with actionable details"
       },
     ],
   });
-  expect(body.issues[0].parserMessage).toContain("Parsing failed");
+  expect(body.issues[0].parserMessage).toMatch(/Lexical error|Parse error|Expecting/);
   expect(body.issues[0].nextSteps).toContain(
     "Correct the Mermaid syntax described by parserMessage, then retry the request.",
   );
@@ -83,31 +70,23 @@ test("the native posts endpoint rejects invalid mermaid with actionable details"
   await expect(page.locator(".card:not(#whatsNew)")).toHaveCount(0);
 });
 
-test("an invalid mermaid part shows the source in an error fallback, not a crash", async ({
+test("an invalid mermaid part shows the source in a server-rendered error fallback", async ({
   page,
   server,
 }) => {
-  // Stub mermaid: render() rejects, exercising our in-frame error fallback.
-  await page.route("https://esm.sh/**", (route) =>
-    route.fulfill({
-      contentType: "application/javascript",
-      body:
-        "export default { initialize(){}, render(){ " +
-        "return Promise.reject(new Error('parse failure')); } };",
-    }),
-  );
-
+  // The render-error fallback is defense-in-depth: pele is both validator and
+  // renderer, so a stored source that fails at render time can't be published
+  // through any endpoint. The fallback itself is covered by unit tests
+  // (test/surfacePage.test.ts). Here we assert a valid diagram renders the SVG
+  // and never shows the fallback.
   await publishParts(server.url, {
-    title: "Broken",
+    title: "Fine",
     agent: "e2e",
-    parts: [{ kind: "mermaid", mermaid: "this is definitely not a valid diagram" }],
+    parts: [{ kind: "mermaid", mermaid: DIAGRAM }],
   });
 
   await page.goto(server.url);
-  const card = page.locator(".card:not(#sessionThread)");
-  const frame = card.frameLocator("iframe.mermaidframe");
-  const err = frame.locator(".mmd-error");
-  await expect(err).toBeVisible();
-  // the original source is echoed so the agent can see what failed
-  await expect(err.locator("pre")).toContainText("not a valid diagram");
+  const frame = page.locator(".card:not(#sessionThread)").frameLocator("iframe.mermaidframe");
+  await expect(frame.locator("svg")).toBeVisible();
+  await expect(frame.locator(".mmd-error")).toHaveCount(0);
 });

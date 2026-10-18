@@ -100,12 +100,12 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.0",
-    "@mermaid-js/parser": "^1.2.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@pierre/diffs": "^1.2.11",
     "ansi_up": "^6.0.6",
     "hono": "^4.13.1",
     "markdown-it": "^14.2.0",
+    "pele": "^1.2.0",
     "shiki": "^4.2.0",
     "zod": "^3.24.0"
   },

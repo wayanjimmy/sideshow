@@ -21,11 +21,12 @@ a `kind`:
   interleave prose, tables, code, and pictures. Only raw _HTML_ in the source is
   escaped, not rendered — reach for an `html` surface when you need live markup
   (interactivity, vector graphics, custom layout), not just to show a picture.
-- **`mermaid`** — diagram source you hand over as _text_; the viewer renders it
+- **`mermaid`** — diagram source you hand over as _text_; the server renders it
   to an SVG (flowcharts, sequence diagrams, ERDs, gantt, state, …). Reach for it
   when the _shape_ of a system is the point and you'd rather describe it than
-  draw SVG by hand. The source travels as data and renders in a sandboxed Mermaid
-  frame (securityLevel `strict`); for bespoke vector art hand-write inline `<svg>`
+  draw SVG by hand. The source travels as data and renders server-side with
+  [Pele](https://pele.run) inside a sandboxed frame; for bespoke vector art
+  hand-write inline `<svg>`
   in an `html` surface instead. Prefer vertical flowcharts (`flowchart TD`/`TB`)
   for sideshow cards;
   wide `LR` system maps shrink to fit the card and become unreadable. The viewer
@@ -99,7 +100,8 @@ don't have a patch. A diff surface takes an optional `"layout": "unified" | "spl
 
 Mermaid diagrams render inside the same card column as everything else, so huge
 left-to-right canvases are scaled down until the text is tiny. Optimize for the
-card first:
+card first. All mermaid diagram types are validated at publish time, so syntax
+errors are caught before a card is created.
 
 - Default to `flowchart TD` or `flowchart TB`. Use `LR` only for short, truly
   linear flows with a handful of columns.

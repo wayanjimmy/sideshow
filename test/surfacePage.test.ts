@@ -5,9 +5,9 @@ import {
   BRIDGE_JS,
   escapeHtml,
   renderHtmlPage,
-  renderMermaidPage,
   renderSandboxedPart,
 } from "../server/surfacePage.ts";
+import { renderMermaid } from "../server/mermaidRender.ts";
 import { themeById } from "../server/themes.ts";
 
 const ORIGIN = "http://localhost:4000";
@@ -184,75 +184,63 @@ test("a pinned mode forces color-scheme into both html surfaces and transparent 
   );
 });
 
-test("a mermaid page pins mermaid's derived colors to the scheme so the whole diagram flips", () => {
+test("mermaid renders server-side to a pele SVG themed via --pele-* variables", async () => {
   const theme = themeById("github");
-  const dark = renderMermaidPage({
-    mermaid: "graph TD; A-->B",
-    origin: ORIGIN,
-    theme: "github",
-    mode: "dark",
-  });
-  const light = renderMermaidPage({
-    mermaid: "graph TD; A-->B",
-    origin: ORIGIN,
-    theme: "github",
-    mode: "light",
-  });
+  const dark = await renderMermaid(
+    { kind: "mermaid", mermaid: "graph TD; A[Node] --> B" },
+    { theme: "github", mode: "dark" },
+  );
+  const light = await renderMermaid(
+    { kind: "mermaid", mermaid: "graph TD; A[Node] --> B" },
+    { theme: "github", mode: "light" },
+  );
+  const auto = await renderMermaid({ kind: "mermaid", mermaid: "graph TD; A[Node] --> B" });
 
-  // themeVariables is embedded as a JSON literal in the loader; pull it back out.
-  const varsOf = (page: string): Record<string, unknown> => {
-    const m = page.match(/themeVariables: (\{.*?\}),\n\s*themeCSS:/s);
-    assert.ok(m, "themeVariables literal not found in the mermaid loader");
-    return JSON.parse(m[1]);
-  };
-  const dv = varsOf(dark);
-  const lv = varsOf(light);
+  // The SVG is real, server-rendered pele output — no CDN, no in-frame loader.
+  assert.ok(dark.body.includes("<svg"), "renders an SVG server-side");
+  assert.ok(dark.body.includes("pele"), "SVG carries pele's class markers");
+  assert.ok(dark.body.includes("Node"), "node label text survives into the SVG");
 
-  // darkMode is pinned to the resolved scheme. Unset, mermaid derives every
-  // variable we don't set (row stripes, cScale ramps, edge-label bg) for a
-  // light canvas, so they never flip — the original "some of it changes" bug.
-  assert.equal(dv.darkMode, true, "dark page pins darkMode:true");
-  assert.equal(lv.darkMode, false, "light page pins darkMode:false");
+  // Theme colors are --pele-* var references resolved by the document <style>,
+  // not baked into the SVG — so the same SVG flips with the scheme.
+  assert.ok(/--pele-bg: .*--pele-fg:/.test(dark.css), "dark css defines pele vars");
+  assert.ok(/--pele-bg: .*--pele-fg:/.test(light.css), "light css defines pele vars");
+  assert.ok(dark.css.includes(theme.dark.surface), "dark bg maps to the dark card surface");
+  assert.ok(light.css.includes(theme.light.surface), "light bg maps to the light card surface");
+  assert.notEqual(
+    dark.css.match(/--pele-fg: ([^;]+);/)?.[1],
+    light.css.match(/--pele-fg: ([^;]+);/)?.[1],
+    "foreground flips with the scheme",
+  );
 
-  // background is the real card surface, not mermaid's hardcoded #f4f4f4, so the
-  // invert-derived colors track the theme — and it flips between schemes.
-  assert.equal(dv.background, theme.dark.surface);
-  assert.equal(lv.background, theme.light.surface);
-  assert.notEqual(dv.background, lv.background, "background flips with the scheme");
-
-  // arrowheadColor used to default to invert(background) and stayed dark in both
-  // modes while its edge flipped; now it's pinned to the line color so the whole
-  // edge reads as one color in either scheme.
-  assert.equal(dv.arrowheadColor, theme.dark.muted);
-  assert.equal(dv.arrowheadColor, dv.lineColor, "dark arrowhead matches the edge it caps");
-  assert.equal(lv.arrowheadColor, lv.lineColor, "light arrowhead matches the edge it caps");
-
-  // the text colors mermaid would otherwise invert()-derive are pinned to our
-  // text token, so every label reads as the viewer's text color in both modes.
-  for (const k of [
-    "nodeTextColor",
-    "titleColor",
-    "classText",
-    "secondaryTextColor",
-    "tertiaryTextColor",
-  ]) {
-    assert.equal(dv[k], theme.dark.text, `${k} pinned to text (dark)`);
-    assert.equal(lv[k], theme.light.text, `${k} pinned to text (light)`);
-  }
+  // No mode → both schemes under the media query, so the OS resolves it.
+  assert.ok(
+    /@media \(prefers-color-scheme: dark\)/.test(auto.css),
+    "no-mode css follows the OS scheme",
+  );
 });
 
-test("a no-mode mermaid page chooses the user's system scheme in the iframe", () => {
-  const auto = renderMermaidPage({ mermaid: "graph TD; A-->B", origin: ORIGIN, theme: "github" });
-  assert.ok(
-    auto.includes("matchMedia('(prefers-color-scheme: dark)')"),
-    "direct no-mode mermaid load should read the browser's system scheme",
+test("invalid mermaid renders the error fallback with the source echoed", async () => {
+  const bad = await renderMermaid(
+    { kind: "mermaid", mermaid: "this is definitely not a valid diagram" },
+    { theme: "github" },
   );
-  assert.ok(auto.includes('"darkMode":true'), "auto loader embeds dark mermaid variables");
-  assert.ok(auto.includes('"darkMode":false'), "auto loader embeds light mermaid variables");
+  assert.ok(bad.body.includes("mmd-error"), "renders the error fallback");
+  assert.ok(bad.body.includes("Couldn"), "error message present");
   assert.ok(
-    /:root\{color-scheme:light dark\}/.test(auto),
-    "the document itself opts into system light/dark",
+    bad.body.includes("this is definitely not a valid diagram"),
+    "source echoed so the agent can see what failed",
   );
+  assert.ok(!bad.body.includes("<svg"), "no SVG for invalid source");
+});
+
+test("mermaid error fallback escapes the echoed source", async () => {
+  const sneaky = await renderMermaid(
+    { kind: "mermaid", mermaid: "<script>alert(1)</script> flowchart" },
+    { theme: "github" },
+  );
+  assert.ok(sneaky.body.includes("mmd-error"), "renders the error fallback");
+  assert.ok(!sneaky.body.includes("<script>"), "echoed source is escaped, not executable");
 });
 
 test("renderSandboxedPart embeds the body and css inside the sandbox doc", () => {

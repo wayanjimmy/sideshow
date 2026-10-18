@@ -10,7 +10,7 @@ A post is a card built from ordered **surfaces**, each with a `kind`:
 
 - **`html`** — markup you write, rendered in a sandboxed iframe. Reach for it to draw: diagrams, UI sketches, data viz, explainers.
 - **`markdown`** — trusted viewer-rendered prose.
-- **`mermaid`** — diagram source rendered in a sandboxed Mermaid frame. Prefer vertical `flowchart TD`/`TB`; wide `LR` maps shrink in the card and should be split or opened fullscreen.
+- **`mermaid`** — diagram source rendered server-side with Pele (pele.run) into an SVG, shown in a sandboxed frame. Prefer vertical `flowchart TD`/`TB`; wide `LR` maps shrink in the card and should be split or opened fullscreen.
 - **`diff`** — a patch you send as _data_, rendered natively by the trusted viewer as a syntax-highlighted code review.
 - **`terminal`** — monospace/ANSI output.
 - **`image`** — an uploaded image asset.

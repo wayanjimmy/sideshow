@@ -63,14 +63,18 @@ consciously, not as a side effect):
   runtime-agnostic so they run on the Worker DO too (shiki on the JS regex
   engine, @pierre/diffs SSR via `shiki-js`, markdown-it, ansi_up — no WASM/DOM).
   `/s/:id` calls these and wraps the result in `renderSandboxedPart`.
+- `server/mermaidRender.ts` — mermaid rendering via Pele (`renderMermaid` →
+  `{body, css}`, same contract), runtime-agnostic: pele renders headless (its
+  canvas text-measurer probe fails closed to a pure-JS metrics table, no
+  WASM/DOM). Kept as its own lazily-imported module — not part of
+  `richRender.ts` — so a mermaid-only workspace never loads shiki/@pierre.
+  `/s/:id` wraps its output in `renderSandboxedPart` like the other rich kinds.
 - `server/surfacePage.ts` — sandboxed documents for surface markup. `renderHtmlPage`
   wraps an html surface (CDN-allowlist CSP + the postMessage bridge: resize,
   sendPrompt, openLink) and injects any opted-in kits (`kits.ts`).
   `renderSandboxedPart` wraps a server-rendered rich body (markdown/code/diff/
-  terminal — see `richRender.ts`) under a tighter CSP (no `connect-src`, no CDN).
-  `renderMermaidPage` is the one exception: mermaid needs a DOM, so it can't be
-  server-rendered — instead it emits a self-rendering doc that loads mermaid from
-  the CDN allowlist (so it uses the html-surface CSP, which permits the CDN). Image
+  terminal/mermaid — see `richRender.ts` and `mermaidRender.ts`) under a tighter
+  CSP (no `connect-src`, no CDN). Image
   and json surfaces stay native because they have no HTML sink; the experimental
   trace path follows the same data-only rule. Comments render as escaped Solid
   text nodes. No agent markup is ever set as `innerHTML` in the trusted viewer
@@ -110,9 +114,9 @@ consciously, not as a side effect):
   user, and inject prompts back to the agent. The rule applies to every surface
   kind, comments, and anything else agent-authored. The two safe ways to render
   it: (a) **build a STRING and serve it from `/s/:id` under a `sandbox` CSP
-  header** — `renderHtmlPage` for html surfaces, `renderSandboxedPart` for the
-  server-rendered rich kinds (markdown/code/diff/terminal), and
-  `renderMermaidPage` for the mermaid CDN doc; or (b) **keep it as data and
+  header** — `renderHtmlPage` for html surfaces, and `renderSandboxedPart` for
+  the server-rendered rich kinds (markdown/code/diff/terminal/mermaid); or
+  (b) **keep it as data and
   render with Solid text nodes / element attributes**, which escape by
   construction (image, json, comments, and experimental trace data). String-building
   on the server is fine — a string is not a DOM sink; danger only starts when it
