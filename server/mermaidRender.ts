@@ -56,7 +56,11 @@ function peleSchemeCss(t: ReturnType<typeof themeById>, mode?: Mode): string {
 
 const MERMAID_CSS = `
 body { margin: 0; padding: 14px 16px; background: transparent; text-align: center; }
-svg { max-width: 100%; height: auto; }
+/* Wide diagrams keep natural size and scroll horizontally instead of shrinking
+   to unreadable text; the card's fullscreen control shows the whole thing. */
+.mmd { overflow-x: auto; }
+svg { max-width: none; height: auto; }
+@media (max-width: 540px) { svg { max-width: 100%; } }
 .pele-node.accent > rect, .pele-node.accent > polygon, .pele-node.accent > circle,
 .pele-node.accent > path { fill: var(--accent-bg); stroke: var(--accent); }
 .pele-node.accent text, .pele-node.accent tspan { fill: var(--accent); }
